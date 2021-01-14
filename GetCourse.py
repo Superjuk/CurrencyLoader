@@ -4,12 +4,18 @@ import datetime as dt
 import telebot
 import threading
 import os
+import configparser as cp
 
 from telebot import types
 from timeloop import Timeloop
 from datetime import timedelta
 
-token = ''
+# Чтение конфига
+config = cp.ConfigParser(interpolation=None)
+config.read('settings.conf')
+getCourseUrl = config['main']['url']
+token = config['telegram']['token']
+
 bot = telebot.TeleBot(token)
 
 usdCsvDir = os.getcwd()+'\\USD\\'
@@ -23,22 +29,26 @@ if not os.path.exists(eurCsvDir):
 # Сохранение курса в файл
 def saveCourseToCsv(currency, date, data):
     raw = ''
+    csvPath=''
     for item in data:
         raw += item + ','
     raw += '\n'
+    
     if currency == 'USD':
-        csv = open(usdCsvDir + date + '.csv', 'a')
-        csv.write(raw)
-        csv.close()
+        csvPath = usdCsvDir + date + '.csv'
     if currency == 'EUR':
-        csv = open(eurCsvDir + date + '.csv', 'a')
-        csv.write(raw)
-        csv.close()
+        csvPath = eurCsvDir + date + '.csv'
+    
+    if not os.path.exists(csvPath):
+        raw = 'Текущее время,Актуальность,Продажа,Покупка\n' + raw
+
+    csv = open(csvPath, 'a')
+    csv.write(raw)
+    csv.close()
 
 # Получение курса валюты
 def getCourse():
     # Запрос курса валюты
-    getCourseUrl = 'https://www.vtb.ru/api/currency-exchange/table-info?contextItemId=%7BC5471052-2291-4AFD-9C2D-1DBC40A4769D%7D&conversionPlace=1&conversionType=1&renderingId=ede2e4d0-eb6b-4730-857b-06fd4975c06b&renderingParams=LegalStatus__%7BF2A32685-E909-44E8-A954-1E206D92FFF8%7D;IsFromRuble__1;CardMaxPeriodDays__5;CardRecordsOnPage__5;ConditionsUrl__%2Fpersonal%2Fplatezhi-i-perevody%2Fobmen-valjuty%2Fspezkassy%2F;Multiply100JPYand10SEK__1'
     resp = reqs.get(getCourseUrl)
     data = resp.json()
     
