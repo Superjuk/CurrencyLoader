@@ -138,7 +138,7 @@ def get_text_messages(message):
 # Запуск бота
 def start_bot_polling():
     print('polling start\n')
-    bot.polling(none_stop=True, interval=0)
+    bot.infinity_polling(interval=0)
 
 # __run__
 getCourse()
