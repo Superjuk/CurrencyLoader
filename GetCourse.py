@@ -11,7 +11,7 @@ from multiprocessing import Value
 from timeloop import Timeloop
 from datetime import timedelta
 
-# Инициализация
+# Инициализация #
 # Чтение конфига
 config = cp.ConfigParser(interpolation=None)
 config.read('settings.conf')
@@ -30,6 +30,55 @@ if not os.path.exists(usdCsvDir):
 eurCsvDir = os.getcwd()+'\\EUR\\'
 if not os.path.exists(eurCsvDir):
     os.mkdir(eurCsvDir)
+
+# Создание кнопок
+getCourseButtonSet = types.InlineKeyboardMarkup()
+currentCourseBtn = types.InlineKeyboardButton(text='Показать', callback_data='current')
+getCourseButtonSet.add(currentCourseBtn)
+
+subscribeButtonsSet = types.InlineKeyboardMarkup()
+subscribeAllBtn = types.InlineKeyboardButton(text='Подписаться на всё', callback_data='sub_all')
+subscribeUsdBtn = types.InlineKeyboardButton(text='Подписаться на доллары', callback_data='sub_usd')
+subscribeEurBtn = types.InlineKeyboardButton(text='Подписаться на евро', callback_data='sub_eur')
+subscribeButtonsSet.add(subscribeUsdBtn)
+subscribeButtonsSet.add(subscribeEurBtn)
+subscribeButtonsSet.add(subscribeAllBtn)
+
+unsubscribeButtonsSet = types.InlineKeyboardMarkup()
+unsubscribeAllBtn = types.InlineKeyboardButton(text='Отписаться от всех', callback_data='unsub_all')
+unsubscribeUsdBtn = types.InlineKeyboardButton(text='Отписаться от долларов', callback_data='unsub_usd')
+unsubscribeEurBtn = types.InlineKeyboardButton(text='Отписаться от евро', callback_data='unsub_eur')
+unsubscribeButtonsSet.add(unsubscribeUsdBtn)
+unsubscribeButtonsSet.add(unsubscribeEurBtn)
+unsubscribeButtonsSet.add(unsubscribeAllBtn)
+
+menuButtonsSet = types.InlineKeyboardMarkup()
+menuSubBtn = types.InlineKeyboardButton(text='Подписка', callback_data='subscribe')
+menuUnsubBtn = types.InlineKeyboardButton(text='Отписка', callback_data='unsubscribe')
+menuInfoBtn = types.InlineKeyboardButton(text='Информирование', callback_data='inform')
+menuButtonsSet.add(menuSubBtn)
+menuButtonsSet.add(menuUnsubBtn)
+menuButtonsSet.add(menuInfoBtn)
+
+infoButtonsSet = types.InlineKeyboardMarkup()
+infoLimitBtn = types.InlineKeyboardButton(text='Установка предела', callback_data='limit')
+infoGraphBtn = types.InlineKeyboardButton(text='График в конце дня', callback_data='graph')
+infoButtonsSet.add(infoLimitBtn)
+infoButtonsSet.add(infoGraphBtn)
+
+limitButtonsSet = types.InlineKeyboardMarkup()
+limitSetBtn = types.InlineKeyboardButton(text='Установить предел', callback_data='limit_set')
+limitCancelBtn = types.InlineKeyboardButton(text='Отменить предел', callback_data='graph_set')
+limitButtonsSet.add(limitSetBtn)
+limitButtonsSet.add(limitCancelBtn)
+
+graphButtonsSet = types.InlineKeyboardMarkup()
+graphSetBtn = types.InlineKeyboardButton(text='Формировать график', callback_data='limit_set')
+graphCancelBtn = types.InlineKeyboardButton(text='Отменить формирование', callback_data='graph_set')
+graphButtonsSet.add(graphSetBtn)
+graphButtonsSet.add(graphCancelBtn)
+
+# Конец инициализации #
 
 # Сохранение курса в файл
 def saveCourseToCsv(currency, date, data):
@@ -114,14 +163,15 @@ def getCourse():
 
     return result
 
+@bot.message_handler(commands=['start'])
+def get_course(message):
+    bot.send_message(message.chat.id, 'Узнай текущий курс', reply_markup=getCourseButtonSet)
+
 # Обработка входящего сообщения
 @bot.message_handler(content_types=['text'])
 def get_text_messages(message):
     factor = 0.0
-    if message.text == 'Текущий курс':
-        response = getCourse()
-        bot.send_message(message.from_user.id, response)
-    elif 'rub' in message.text.lower() or 'rur' in message.text.lower():
+    if 'rub' in message.text.lower() or 'rur' in message.text.lower():
         factor = 1/usdSell.value
         bot.send_message(message.from_user.id, convert(message.text, factor, 'usd'))
         factor = 1/eurSell.value
@@ -134,6 +184,15 @@ def get_text_messages(message):
         bot.send_message(message.from_user.id, convert(message.text, factor, 'rur'))
     else:
         bot.send_message(message.from_user.id, 'Ошибка!')
+
+# Обработчик нажатий на кнопки
+@bot.callback_query_handler(func=lambda call: True)
+def callback_worker(call):
+    print(call.data)
+    if call.data == 'current': 
+        response = getCourse()
+        print(call.message.chat.id)
+        bot.send_message(call.message.chat.id, response)
 
 # Запуск бота
 def start_bot_polling():
@@ -157,8 +216,8 @@ tl.start(block=True)
 # Завершение работы скрипта
 bot.stop_polling()
 t.join()
-usdSell.close()
-usdSell.unlink()
-eurSell.close()
-eurSell.unlink()
+# usdSell.close()
+# usdSell.unlink()
+# eurSell.close()
+# eurSell.unlink()
 print('polling end\n')
