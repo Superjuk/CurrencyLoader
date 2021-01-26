@@ -31,9 +31,13 @@ eurCsvDir = os.getcwd()+'\\EUR\\'
 if not os.path.exists(eurCsvDir):
     os.mkdir(eurCsvDir)
 
+rubleSign = '\u20bd'
+eurSign = '\u20ac'
+usdSign = '\u0024'
+
 # Создание кнопок
 getCourseButtonSet = types.InlineKeyboardMarkup()
-currentCourseBtn = types.InlineKeyboardButton(text='Показать', callback_data='current')
+currentCourseBtn = types.InlineKeyboardButton(text='Показать курс', callback_data='current')
 getCourseButtonSet.add(currentCourseBtn)
 
 subscribeButtonsSet = types.InlineKeyboardMarkup()
@@ -79,6 +83,13 @@ graphButtonsSet.add(graphSetBtn)
 graphButtonsSet.add(graphCancelBtn)
 
 # Конец инициализации #
+
+# Поиск в строке данными из массива
+def findArrayInMessage(substrings, message):
+    for item in substrings:
+        if item in message:
+            return True
+    return False
 
 # Сохранение курса в файл
 def saveCourseToCsv(currency, date, data):
@@ -153,13 +164,13 @@ def getCourse():
 
 
     result = usd + ': \n'
-    result += 'Продажа: ' + str(usdRate[2]) + '\n'
-    result += 'Покупка: ' + str(usdRate[3]) + '\n'
+    result += 'Продажа: ' + str(usdRate[2]) + ' ' + rubleSign + '\n'
+    result += 'Покупка: ' + str(usdRate[3]) + ' ' + rubleSign + '\n'
     result += '----\n'
     
     result += eur + ': \n'
-    result += 'Продажа: ' + str(eurRate[2]) + '\n'
-    result += 'Покупка: ' + str(eurRate[3])
+    result += 'Продажа: ' + str(eurRate[2]) + ' ' + rubleSign + '\n'
+    result += 'Покупка: ' + str(eurRate[3]) + ' ' + rubleSign
 
     return result
 
@@ -171,28 +182,26 @@ def get_course(message):
 @bot.message_handler(content_types=['text'])
 def get_text_messages(message):
     factor = 0.0
-    if 'rub' in message.text.lower() or 'rur' in message.text.lower():
+    if findArrayInMessage(['rub', 'rur', 'руб'], message.text.lower()):
         factor = 1/usdSell.value
-        bot.send_message(message.from_user.id, convert(message.text, factor, 'usd'))
+        bot.send_message(message.from_user.id, convert(message.text, factor, usdSign))
         factor = 1/eurSell.value
-        bot.send_message(message.from_user.id, convert(message.text, factor, 'eur'))
-    elif 'usd' in message.text.lower():
+        bot.send_message(message.from_user.id, convert(message.text, factor, eurSign), reply_markup=getCourseButtonSet)
+    elif findArrayInMessage(['usd', 'доллар'], message.text.lower()):
         factor = usdSell.value
-        bot.send_message(message.from_user.id, convert(message.text, factor, 'rur'))
-    elif 'eur' in message.text.lower():
+        bot.send_message(message.from_user.id, convert(message.text, factor, rubleSign), reply_markup=getCourseButtonSet)
+    elif findArrayInMessage(['eur', 'евро'], message.text.lower()):
         factor = eurSell.value
-        bot.send_message(message.from_user.id, convert(message.text, factor, 'rur'))
+        bot.send_message(message.from_user.id, convert(message.text, factor, rubleSign), reply_markup=getCourseButtonSet)
     else:
         bot.send_message(message.from_user.id, 'Ошибка!')
 
 # Обработчик нажатий на кнопки
 @bot.callback_query_handler(func=lambda call: True)
 def callback_worker(call):
-    print(call.data)
     if call.data == 'current': 
         response = getCourse()
-        print(call.message.chat.id)
-        bot.send_message(call.message.chat.id, response)
+        bot.send_message(call.message.chat.id, response, reply_markup=getCourseButtonSet)
 
 # Запуск бота
 def start_bot_polling():
