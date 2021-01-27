@@ -17,6 +17,10 @@ config = cp.ConfigParser(interpolation=None)
 config.read('settings.conf')
 getCourseUrl = config['main']['url']
 token = config['telegram']['token']
+# users = config['subscribe']['users'].split(',')
+# config['subscribe']['users']='12,13,14'
+# with open('settings.conf', 'w') as configfile:
+#     config.write(configfile)
 
 bot = telebot.TeleBot(token)
 
@@ -35,23 +39,29 @@ rubleSign = '\u20bd'
 eurSign = '\u20ac'
 usdSign = '\u0024'
 
+tempDateUsd = dt.datetime(1970, 1, 1)
+tempDateEur = dt.datetime(1970, 1, 1)
+
+usdRate = []
+eurRate = []
+
 # Создание кнопок
 getCourseButtonSet = types.InlineKeyboardMarkup()
 currentCourseBtn = types.InlineKeyboardButton(text='Показать курс', callback_data='current')
 getCourseButtonSet.add(currentCourseBtn)
 
 subscribeButtonsSet = types.InlineKeyboardMarkup()
-subscribeAllBtn = types.InlineKeyboardButton(text='Подписаться на всё', callback_data='sub_all')
-subscribeUsdBtn = types.InlineKeyboardButton(text='Подписаться на доллары', callback_data='sub_usd')
-subscribeEurBtn = types.InlineKeyboardButton(text='Подписаться на евро', callback_data='sub_eur')
+subscribeAllBtn = types.InlineKeyboardButton(text='всё', callback_data='sub_all')
+subscribeUsdBtn = types.InlineKeyboardButton(text='доллары', callback_data='sub_usd')
+subscribeEurBtn = types.InlineKeyboardButton(text='евро', callback_data='sub_eur')
 subscribeButtonsSet.add(subscribeUsdBtn)
 subscribeButtonsSet.add(subscribeEurBtn)
 subscribeButtonsSet.add(subscribeAllBtn)
 
 unsubscribeButtonsSet = types.InlineKeyboardMarkup()
-unsubscribeAllBtn = types.InlineKeyboardButton(text='Отписаться от всех', callback_data='unsub_all')
-unsubscribeUsdBtn = types.InlineKeyboardButton(text='Отписаться от долларов', callback_data='unsub_usd')
-unsubscribeEurBtn = types.InlineKeyboardButton(text='Отписаться от евро', callback_data='unsub_eur')
+unsubscribeAllBtn = types.InlineKeyboardButton(text='всего', callback_data='unsub_all')
+unsubscribeUsdBtn = types.InlineKeyboardButton(text='долларов', callback_data='unsub_usd')
+unsubscribeEurBtn = types.InlineKeyboardButton(text='евро', callback_data='unsub_eur')
 unsubscribeButtonsSet.add(unsubscribeUsdBtn)
 unsubscribeButtonsSet.add(unsubscribeEurBtn)
 unsubscribeButtonsSet.add(unsubscribeAllBtn)
@@ -119,6 +129,10 @@ def convert(raw, course, currencyName):
 
 # Получение курса валюты
 def getCourse():
+    global tempDateUsd
+    global tempDateEur
+    global usdRate
+    global eurRate
     # Запрос курса валюты
     resp = reqs.get(getCourseUrl)
     data = resp.json()
@@ -128,8 +142,6 @@ def getCourse():
     usd = 'USD'
     eur = 'EUR'
     breakCount = 2
-    usdRate = []
-    eurRate = []
     currencies = data['GroupedRates']
     for i in range(len(currencies)):
         moneyRate = currencies[i]['MoneyRates']
@@ -139,29 +151,32 @@ def getCourse():
         buy = moneyRate[0]['BankBuyAt']
         date = dt.datetime.fromisoformat(moneyRate[0]['StartDate'])
     
-        if fromCode == usd:
+        if fromCode == usd and tempDateUsd < date:
             with usdSell.get_lock():
                 usdSell.value = sell
+            usdRate.clear()
             usdRate.append(dt.datetime.now().strftime('%X'))
             usdRate.append(date.strftime('%X'))
             usdRate.append(str(sell))
             usdRate.append(str(buy))
             saveCourseToCsv(fromCode, date.strftime('%Y-%m-%d'), usdRate)
+            tempDateUsd = date
             breakCount -= 1
     
-        if fromCode == eur:
+        if fromCode == eur and tempDateEur < date:
             with eurSell.get_lock():
                 eurSell.value = sell
+            eurRate.clear()
             eurRate.append(dt.datetime.now().strftime('%X'))
             eurRate.append(date.strftime('%X'))
             eurRate.append(str(sell))
             eurRate.append(str(buy))
             saveCourseToCsv(fromCode, date.strftime('%Y-%m-%d'), eurRate)
+            tempDateEur = date
             breakCount -= 1
     
         if breakCount == 0:
             break
-
 
     result = usd + ': \n'
     result += 'Продажа: ' + str(usdRate[2]) + ' ' + rubleSign + '\n'
@@ -176,7 +191,7 @@ def getCourse():
 
 @bot.message_handler(commands=['start'])
 def get_course(message):
-    bot.send_message(message.chat.id, 'Узнай текущий курс', reply_markup=getCourseButtonSet)
+    bot.send_message(message.chat.id, 'Настройка работы:', reply_markup=menuButtonsSet)
 
 # Обработка входящего сообщения
 @bot.message_handler(content_types=['text'])
@@ -194,7 +209,7 @@ def get_text_messages(message):
         factor = eurSell.value
         bot.send_message(message.from_user.id, convert(message.text, factor, rubleSign), reply_markup=getCourseButtonSet)
     else:
-        bot.send_message(message.from_user.id, 'Ошибка!')
+        bot.send_message(message.from_user.id, 'Ошибка!', reply_markup=getCourseButtonSet)
 
 # Обработчик нажатий на кнопки
 @bot.callback_query_handler(func=lambda call: True)
@@ -202,6 +217,12 @@ def callback_worker(call):
     if call.data == 'current': 
         response = getCourse()
         bot.send_message(call.message.chat.id, response, reply_markup=getCourseButtonSet)
+    elif call.data == 'subscribe':
+        bot.send_message(call.message.chat.id, 'Подписаться на ...', reply_markup=subscribeButtonsSet)
+    elif call.data == 'unsubscribe':
+        bot.send_message(call.message.chat.id, 'Отписаться от ...', reply_markup=unsubscribeButtonsSet)
+    elif call.data == 'inform':
+        bot.send_message(call.message.chat.id, 'Информирование:', reply_markup=infoButtonsSet)
 
 # Запуск бота
 def start_bot_polling():
@@ -225,8 +246,4 @@ tl.start(block=True)
 # Завершение работы скрипта
 bot.stop_polling()
 t.join()
-# usdSell.close()
-# usdSell.unlink()
-# eurSell.close()
-# eurSell.unlink()
 print('polling end\n')
