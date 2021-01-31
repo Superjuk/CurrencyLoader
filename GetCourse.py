@@ -45,6 +45,8 @@ tempDateEur = dt.datetime(1970, 1, 1)
 usdRate = []
 eurRate = []
 
+users = []
+
 # Создание кнопок
 getCourseButtonSet = types.InlineKeyboardMarkup()
 currentCourseBtn = types.InlineKeyboardButton(text='Показать курс', callback_data='current')
@@ -82,13 +84,13 @@ infoButtonsSet.add(infoGraphBtn)
 
 limitButtonsSet = types.InlineKeyboardMarkup()
 limitSetBtn = types.InlineKeyboardButton(text='Установить предел', callback_data='limit_set')
-limitCancelBtn = types.InlineKeyboardButton(text='Отменить предел', callback_data='graph_set')
+limitCancelBtn = types.InlineKeyboardButton(text='Отменить предел', callback_data='limit_cancel')
 limitButtonsSet.add(limitSetBtn)
 limitButtonsSet.add(limitCancelBtn)
 
 graphButtonsSet = types.InlineKeyboardMarkup()
-graphSetBtn = types.InlineKeyboardButton(text='Формировать график', callback_data='limit_set')
-graphCancelBtn = types.InlineKeyboardButton(text='Отменить формирование', callback_data='graph_set')
+graphSetBtn = types.InlineKeyboardButton(text='Формировать график', callback_data='graph_set')
+graphCancelBtn = types.InlineKeyboardButton(text='Отменить формирование', callback_data='graph_cancel')
 graphButtonsSet.add(graphSetBtn)
 graphButtonsSet.add(graphCancelBtn)
 
@@ -121,11 +123,27 @@ def saveCourseToCsv(currency, date, data):
     csv.write(raw)
     csv.close()
 
+# Конвертер валют
 def convert(raw, course, currencyName):
     array = raw.split()
     if len(array) != 2:
         return 'Неверный формат данных.\n Попробуйте отправить, например, '"'100 rub'"'\n'
     return format(float(array[0]) * course, '.2f') + ' ' + currencyName + '\n'
+
+# Сохранение настроек пользователя
+def saveUserSettings(id, key, value, users = users):
+    for user in users:
+        if user['id'] == id:
+            user[key] = value
+            return
+    users = {'id': id, key: value}
+
+# Загрузка настройки пользователя
+def loadUserSettings(id, key, users = users):
+    for user in users:
+        if user['id'] == id:
+            return user[key]
+    return ''
 
 # Получение курса валюты
 def getCourse():
@@ -214,15 +232,51 @@ def get_text_messages(message):
 # Обработчик нажатий на кнопки
 @bot.callback_query_handler(func=lambda call: True)
 def callback_worker(call):
+    id = call.message.chat.id
     if call.data == 'current': 
         response = getCourse()
-        bot.send_message(call.message.chat.id, response, reply_markup=getCourseButtonSet)
+        bot.send_message(id, response, reply_markup=getCourseButtonSet)
     elif call.data == 'subscribe':
-        bot.send_message(call.message.chat.id, 'Подписаться на ...', reply_markup=subscribeButtonsSet)
+        bot.send_message(id, 'Подписаться на ...', reply_markup=subscribeButtonsSet)
     elif call.data == 'unsubscribe':
-        bot.send_message(call.message.chat.id, 'Отписаться от ...', reply_markup=unsubscribeButtonsSet)
+        bot.send_message(id, 'Отписаться от ...', reply_markup=unsubscribeButtonsSet)
     elif call.data == 'inform':
-        bot.send_message(call.message.chat.id, 'Информирование:', reply_markup=infoButtonsSet)
+        bot.send_message(id, 'Информирование:', reply_markup=infoButtonsSet)
+    elif call.data == 'sub_all':
+        response = 'Вы подписаны на все валюты.'
+        saveUserSettings(id, 'usdSub', 1)
+        saveUserSettings(id, 'eurSub', 1)
+        bot.send_message(id, response, reply_markup=menuButtonsSet)
+    elif call.data == 'sub_usd':
+        response = 'Вы подписаны на курс доллара.'
+        saveUserSettings(id, 'usdSub', 1)
+        bot.send_message(id, response, reply_markup=menuButtonsSet)
+    elif call.data == 'sub_eur':
+        response = 'Вы подписаны на курс евро.'
+        saveUserSettings(id, 'eurSub', 1)
+        bot.send_message(id, response, reply_markup=menuButtonsSet)
+    elif call.data == 'unsub_all':
+        response = 'Вы отписались от всех валют.'
+        saveUserSettings(id, 'usdSub', 0)
+        saveUserSettings(id, 'eurSub', 0)
+        bot.send_message(id, response, reply_markup=menuButtonsSet)
+    elif call.data == 'unsub_usd':
+        response = 'Вы отписались от курса доллара.'
+        saveUserSettings(id, 'usdSub', 0)
+        bot.send_message(id, response, reply_markup=menuButtonsSet)
+    elif call.data == 'unsub_eur':
+        response = 'Вы отписались от курса евро.'
+        saveUserSettings(id, 'eurSub', 0)
+        bot.send_message(id, response, reply_markup=menuButtonsSet)
+    elif call.data == 'limit':
+        response = 'Установите нижний лимит:'
+        bot.send_message(id, response)
+        # Флаг для установки лимита с учётом одной/двух валют
+    elif call.data == 'graph':
+    elif call.data == 'limit_set':
+    elif call.data == 'limit_cancel':
+    elif call.data == 'graph_set':
+    elif call.data == 'graph_cancel':
 
 # Запуск бота
 def start_bot_polling():
