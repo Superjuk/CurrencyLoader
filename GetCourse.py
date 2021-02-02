@@ -49,6 +49,9 @@ eurRate = []
 
 users = []
 
+setUsdLimitFlag = False
+setEurLimitFlag = False
+
 # Создание кнопок
 getCourseButtonSet = types.InlineKeyboardMarkup()
 currentCourseBtn = types.InlineKeyboardButton(text='Показать курс', callback_data='current')
@@ -139,15 +142,28 @@ def saveUserSettings(id, key, value, users = users):
     for user in users:
         if user['id'] == id:
             user[key] = value
+            print(users)
             return
-    users = {'id': id, key: value}
+    users.append({'id': id, key: value})
+    print(users)
 
 # Загрузка настройки пользователя
-def loadUserSettings(id, key, users = users):
+def loadUserSettings(id, key, default=0, users = users):
     for user in users:
         if user['id'] == id:
-            return user[key]
-    return ''
+            try:
+                return user[key]
+            except KeyError:
+                return default
+    return default
+
+# Конвертирование текста в число с плавающей запятой
+def toFloat(str):
+    num = str.replace(',', '.')
+    try:
+        return float(num)
+    except ValueError:
+        return 0.0
 
 # Получение курса валюты
 def getCourse():
@@ -223,24 +239,48 @@ def get_course(message):
 # Обработка входящего сообщения
 @bot.message_handler(content_types=['text'])
 def get_text_messages(message):
+    global setUsdLimitFlag
+    global setEurLimitFlag
+    #
     factor = 0.0
-    if findArrayInMessage(['rub', 'rur', 'руб'], message.text.lower()):
+    response = ''
+    #
+    id = message.from_user.id
+    #
+    if setUsdLimitFlag:
+        saveUserSettings(id, 'usdLimit', toFloat(message.text))
+        setUsdLimitFlag = False
+        if setEurLimitFlag:
+            response = 'Установите нижний лимит для евро:'
+            bot.send_message(id, response)
+        else:
+            response = 'Установка лимитов завершена.'
+            bot.send_message(id, response, reply_markup=menuButtonsSet)
+    elif setEurLimitFlag:
+        saveUserSettings(id, 'eurLimit', toFloat(message.text))
+        setEurLimitFlag = False
+        response = 'Установка лимитов завершена.'
+        bot.send_message(id, response, reply_markup=menuButtonsSet)
+    elif findArrayInMessage(['rub', 'rur', 'руб'], message.text.lower()):
         factor = 1/usdSell.value
-        bot.send_message(message.from_user.id, convert(message.text, factor, usdSign))
+        bot.send_message(id, convert(message.text, factor, usdSign))
         factor = 1/eurSell.value
-        bot.send_message(message.from_user.id, convert(message.text, factor, eurSign), reply_markup=getCourseButtonSet)
+        bot.send_message(id, convert(message.text, factor, eurSign), reply_markup=getCourseButtonSet)
     elif findArrayInMessage(['usd', 'доллар'], message.text.lower()):
         factor = usdSell.value
-        bot.send_message(message.from_user.id, convert(message.text, factor, rubleSign), reply_markup=getCourseButtonSet)
+        bot.send_message(id, convert(message.text, factor, rubleSign), reply_markup=getCourseButtonSet)
     elif findArrayInMessage(['eur', 'евро'], message.text.lower()):
         factor = eurSell.value
-        bot.send_message(message.from_user.id, convert(message.text, factor, rubleSign), reply_markup=getCourseButtonSet)
+        bot.send_message(id, convert(message.text, factor, rubleSign), reply_markup=getCourseButtonSet)
     else:
-        bot.send_message(message.from_user.id, 'Ошибка!', reply_markup=getCourseButtonSet)
+        bot.send_message(id, 'Ошибка!', reply_markup=getCourseButtonSet)
 
 # Обработчик нажатий на кнопки
 @bot.callback_query_handler(func=lambda call: True)
 def callback_worker(call):
+    global setUsdLimitFlag
+    global setEurLimitFlag
+    #
     id = call.message.chat.id
     if call.data == 'current': 
         response = getCourse()
@@ -278,9 +318,12 @@ def callback_worker(call):
         saveUserSettings(id, 'eurSub', 0)
         bot.send_message(id, response, reply_markup=menuButtonsSet)
     elif call.data == 'limit':
-        response = 'Установите нижний лимит:'
-        bot.send_message(id, response, reply_markup=limitButtonsSet)
-        # Флаг для установки лимита с учётом одной/двух валют
+        setUsdLimitFlag = loadUserSettings(id, 'usdSub', False)
+        setEurLimitFlag = loadUserSettings(id, 'eurSub', False)
+        response = 'Установите нижний лимит для доллара:'
+        if not setUsdLimitFlag:
+            response = 'Установите нижний лимит для евро:'
+        bot.send_message(id, response)
     elif call.data == 'graph':
         response = 'Слать график в конце дня:'
         bot.send_message(id, response, reply_markup=graphButtonsSet)
