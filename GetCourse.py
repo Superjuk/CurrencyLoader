@@ -5,11 +5,13 @@ import telebot
 import threading
 import os
 import configparser as cp
+import time
 
 from telebot import types
 from multiprocessing import Value
 from timeloop import Timeloop
 from datetime import timedelta
+from requests.models import Response
 
 # Инициализация #
 # Чтение конфига
@@ -72,9 +74,11 @@ menuButtonsSet = types.InlineKeyboardMarkup()
 menuSubBtn = types.InlineKeyboardButton(text='Подписка', callback_data='subscribe')
 menuUnsubBtn = types.InlineKeyboardButton(text='Отписка', callback_data='unsubscribe')
 menuInfoBtn = types.InlineKeyboardButton(text='Информирование', callback_data='inform')
+menuExitBtn = types.InlineKeyboardButton(text='Выход из настроек', callback_data='exit_settings')
 menuButtonsSet.add(menuSubBtn)
 menuButtonsSet.add(menuUnsubBtn)
 menuButtonsSet.add(menuInfoBtn)
+menuButtonsSet.add(menuExitBtn)
 
 infoButtonsSet = types.InlineKeyboardMarkup()
 infoLimitBtn = types.InlineKeyboardButton(text='Установка предела', callback_data='limit')
@@ -152,7 +156,12 @@ def getCourse():
     global usdRate
     global eurRate
     # Запрос курса валюты
-    resp = reqs.get(getCourseUrl)
+    while True:
+        try:
+            resp = reqs.get(getCourseUrl)
+            break
+        except ConnectionError:
+            time.sleep(10)
     data = resp.json()
     
     # Разбор полученного json
@@ -270,13 +279,32 @@ def callback_worker(call):
         bot.send_message(id, response, reply_markup=menuButtonsSet)
     elif call.data == 'limit':
         response = 'Установите нижний лимит:'
-        bot.send_message(id, response)
+        bot.send_message(id, response, reply_markup=limitButtonsSet)
         # Флаг для установки лимита с учётом одной/двух валют
     elif call.data == 'graph':
+        response = 'Слать график в конце дня:'
+        bot.send_message(id, response, reply_markup=graphButtonsSet)
     elif call.data == 'limit_set':
+        response='Включено уведомление при достижении нижнего лимита.'
+        saveUserSettings(id, 'usdLimit', 1)
+        saveUserSettings(id, 'eurSub', 1)
+        bot.send_message(id, response, reply_markup=menuButtonsSet)
     elif call.data == 'limit_cancel':
+        response='Уведомления по валютам отлючены.'
+        saveUserSettings(id, 'usdLimit', 0)
+        saveUserSettings(id, 'eurSub', 0)
+        bot.send_message(id, response, reply_markup=menuButtonsSet)
     elif call.data == 'graph_set':
+        response = 'График будет формироваться в конце дня.'
+        saveUserSettings(id, 'chart', 1)
+        bot.send_message(id, response, reply_markup=menuButtonsSet)
     elif call.data == 'graph_cancel':
+        response = 'Формирование графика отменено.'
+        saveUserSettings(id, 'chart', 0)
+        bot.send_message(id, response, reply_markup=menuButtonsSet)
+    elif call.data == 'exit_settings':
+        response = 'Настройка завершена.'
+        bot.send_message(id, response, reply_markup=getCourseButtonSet)
 
 # Запуск бота
 def start_bot_polling():
