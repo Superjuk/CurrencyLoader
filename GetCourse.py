@@ -14,11 +14,37 @@ from datetime import timedelta
 from requests.models import Response
 
 # Инициализация #
-# Чтение конфига
 config = cp.ConfigParser(interpolation=None)
 config.read('settings.conf')
-getCourseUrl = config['main']['url']
-token = config['telegram']['token']
+
+# Сохранение в конфиг
+def saveToConfig(file = 'settings.conf', config = config):
+    with open(file, 'w') as configfile:
+        config.write(configfile)
+
+# Запись в конфиг
+def commitToConfig(section, key, value, config = config):
+    config[section][key] = value
+
+# Загрузка из конфига
+def getFromConfig(section, key, defaultValue, config = config):
+    try:
+        return config[section][key]
+    except KeyError:
+        return defaultValue
+
+# Загрузка даты/времени UTC из конфига
+def getDateTimeFromConfig(section, key, defaultValue, config = config):
+    return dt.datetime.fromtimestamp(float(getFromConfig(section, key, defaultValue, config)))
+
+# Чтение конфига
+getCourseUrl = getFromConfig('main', 'url', '')
+token = getFromConfig('telegram', 'token', 'Empty-Token')
+lastDateTime = getDateTimeFromConfig('tmp', 'lastDateTime', 0)
+lastUsdSell = float(getFromConfig('tmp', 'lastUsdSell', 0.01))
+lastUsdBuy = float(getFromConfig('tmp', 'lastUsdBuy', 0.01))
+lastEurSell = float(getFromConfig('tmp', 'lastEurSell', 0.01))
+lastEurBuy = float(getFromConfig('tmp', 'lastEurBuy', 0.01))
 # users = config['subscribe']['users'].split(',')
 # config['subscribe']['users']='12,13,14'
 # with open('settings.conf', 'w') as configfile:
@@ -26,8 +52,8 @@ token = config['telegram']['token']
 
 bot = telebot.TeleBot(token)
 
-usdSell = Value('d', 0.01)
-eurSell = Value('d', 0.01)
+usdSell = Value('d', lastUsdSell)
+eurSell = Value('d', lastEurSell)
 
 usdCsvDir = os.getcwd()+'\\USD\\'
 if not os.path.exists(usdCsvDir):
@@ -41,8 +67,8 @@ rubleSign = '\u20bd'
 eurSign = '\u20ac'
 usdSign = '\u0024'
 
-tempDateUsd = dt.datetime(1970, 1, 1)
-tempDateEur = dt.datetime(1970, 1, 1)
+tempDateUsd = lastDateTime
+tempDateEur = lastDateTime
 
 usdRate = []
 eurRate = []
@@ -165,12 +191,33 @@ def toFloat(str):
     except ValueError:
         return 0.0
 
+# Форматирование результата курса в текст
+def courseToText(course, rawData):
+    sell = lastUsdSell
+    buy  = lastUsdBuy
+    if len(rawData) == 4:
+        sell = rawData[2]
+        buy  = rawData[3]
+    elif course == 'EUR':
+        sell = lastEurSell
+        buy  = lastEurBuy
+
+    result = course + ': \n'
+    result += 'Продажа: ' + str(sell) + ' ' + rubleSign + '\n'
+    result += 'Покупка: ' + str(buy) + ' ' + rubleSign
+    return result
+
 # Получение курса валюты
 def getCourse():
     global tempDateUsd
     global tempDateEur
     global usdRate
     global eurRate
+    global lastDateTime
+    global lastUsdSell
+    global lastUsdBuy
+    global lastEurSell
+    global lastEurBuy
     # Запрос курса валюты
     while True:
         try:
@@ -179,7 +226,7 @@ def getCourse():
         except ConnectionError:
             time.sleep(10)
     data = resp.json()
-    
+
     # Разбор полученного json
     # и запись результата в usdRate и eurRate
     usd = 'USD'
@@ -193,7 +240,7 @@ def getCourse():
         sell = moneyRate[0]['BankSellAt']
         buy = moneyRate[0]['BankBuyAt']
         date = dt.datetime.fromisoformat(moneyRate[0]['StartDate'])
-    
+
         if fromCode == usd and tempDateUsd < date:
             with usdSell.get_lock():
                 usdSell.value = sell
@@ -204,8 +251,11 @@ def getCourse():
             usdRate.append(str(buy))
             saveCourseToCsv(fromCode, date.strftime('%Y-%m-%d'), usdRate)
             tempDateUsd = date
+            lastDateTime = date
+            lastUsdSell = sell
+            lastUsdBuy = buy
             breakCount -= 1
-    
+
         if fromCode == eur and tempDateEur < date:
             with eurSell.get_lock():
                 eurSell.value = sell
@@ -216,19 +266,28 @@ def getCourse():
             eurRate.append(str(buy))
             saveCourseToCsv(fromCode, date.strftime('%Y-%m-%d'), eurRate)
             tempDateEur = date
+            lastDateTime = date
+            lastEurSell = sell
+            lastEurBuy = buy
             breakCount -= 1
-    
+
         if breakCount == 0:
+            commitToConfig('tmp', 'lastDateTime', str(lastDateTime.timestamp()))
+            commitToConfig('tmp', 'lastUsdSell', str(lastUsdSell))
+            commitToConfig('tmp', 'lastUsdBuy', str(lastUsdBuy))
+            commitToConfig('tmp', 'lastEurSell', str(lastEurSell))
+            commitToConfig('tmp', 'lastEurBuy', str(lastEurBuy))
             break
 
-    result = usd + ': \n'
-    result += 'Продажа: ' + str(usdRate[2]) + ' ' + rubleSign + '\n'
-    result += 'Покупка: ' + str(usdRate[3]) + ' ' + rubleSign + '\n'
-    result += '----\n'
-    
-    result += eur + ': \n'
-    result += 'Продажа: ' + str(eurRate[2]) + ' ' + rubleSign + '\n'
-    result += 'Покупка: ' + str(eurRate[3]) + ' ' + rubleSign
+    result = {usd: usdRate, eur: eurRate}
+    # result = usd + ': \n'
+    # result += 'Продажа: ' + str(usdRate[2]) + ' ' + rubleSign + '\n'
+    # result += 'Покупка: ' + str(usdRate[3]) + ' ' + rubleSign + '\n'
+    # result += '----\n'
+
+    # result += eur + ': \n'
+    # result += 'Продажа: ' + str(eurRate[2]) + ' ' + rubleSign + '\n'
+    # result += 'Покупка: ' + str(eurRate[3]) + ' ' + rubleSign
 
     return result
 
@@ -282,9 +341,23 @@ def callback_worker(call):
     global setEurLimitFlag
     #
     id = call.message.chat.id
-    if call.data == 'current': 
-        response = getCourse()
-        bot.send_message(id, response, reply_markup=getCourseButtonSet)
+    if call.data == 'current':
+        data = getCourse()
+        response = 'Подпишитесь хотя бы на одну валюту!'
+        buttonsSet = subscribeButtonsSet
+        isUsdResponse = False
+        if loadUserSettings(id, 'usdSub'):
+            response = courseToText('USD', data['USD'])
+            isUsdResponse = True
+            buttonsSet = getCourseButtonSet
+        if loadUserSettings(id, 'eurSub'):
+            if isUsdResponse:
+                response += '\n\n'
+                response += courseToText('EUR', data['EUR'])
+            else:
+                response = courseToText('EUR', data['EUR'])
+            buttonsSet = getCourseButtonSet
+        bot.send_message(id, response, reply_markup=buttonsSet)
     elif call.data == 'subscribe':
         bot.send_message(id, 'Подписаться на ...', reply_markup=subscribeButtonsSet)
     elif call.data == 'unsubscribe':
@@ -372,3 +445,4 @@ tl.start(block=True)
 bot.stop_polling()
 t.join()
 print('polling end\n')
+saveToConfig()
