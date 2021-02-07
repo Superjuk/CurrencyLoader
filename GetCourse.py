@@ -18,13 +18,21 @@ config = cp.ConfigParser(interpolation=None)
 config.read('settings.conf')
 
 # Сохранение в конфиг
-def saveToConfig(file = 'settings.conf', config = config):
+def saveToConfig(users, file = 'settings.conf', config = config):
+    commitUsersToConfig(users)
     with open(file, 'w') as configfile:
         config.write(configfile)
 
-# Запись в конфиг
+# Запись в конфиг значения
 def commitToConfig(section, key, value, config = config):
     config[section][key] = value
+
+# Запись в конфиг структуры пользователей
+def commitUsersToConfig(users, config = config):
+    for user in users:
+        section = user['id']
+        for key in user:
+            commitToConfig(section, key, user[key], config)
 
 # Загрузка из конфига
 def getFromConfig(section, key, defaultValue, config = config):
@@ -37,18 +45,30 @@ def getFromConfig(section, key, defaultValue, config = config):
 def getDateTimeFromConfig(section, key, defaultValue, config = config):
     return dt.datetime.fromtimestamp(float(getFromConfig(section, key, defaultValue, config)))
 
+# Предзагрузка настроек пользователя
+def preloadUserSettings(usersList):
+    users = []
+    #
+    for user in usersList:
+        obj = {}
+        obj['id'] = user
+        obj['usdSub'] = getFromConfig(user, 'usdSub', 0)
+        obj['eurSub'] = getFromConfig(user, 'eurSub', 0)
+        obj['usdLimit'] = getFromConfig(user, 'usdLimit', 0.01)
+        obj['eurLimit'] = getFromConfig(user, 'eurLimit', 0.01)
+        obj['chart'] = getFromConfig(user, 'chart', 0)
+        users.append(obj)
+    return users
+
 # Чтение конфига
 getCourseUrl = getFromConfig('main', 'url', '')
 token = getFromConfig('telegram', 'token', 'Empty-Token')
+usersList = getFromConfig('users', 'list', '').split(',')
 lastDateTime = getDateTimeFromConfig('tmp', 'lastDateTime', 0)
 lastUsdSell = float(getFromConfig('tmp', 'lastUsdSell', 0.01))
 lastUsdBuy = float(getFromConfig('tmp', 'lastUsdBuy', 0.01))
 lastEurSell = float(getFromConfig('tmp', 'lastEurSell', 0.01))
 lastEurBuy = float(getFromConfig('tmp', 'lastEurBuy', 0.01))
-# users = config['subscribe']['users'].split(',')
-# config['subscribe']['users']='12,13,14'
-# with open('settings.conf', 'w') as configfile:
-#     config.write(configfile)
 
 bot = telebot.TeleBot(token)
 
@@ -73,7 +93,7 @@ tempDateEur = lastDateTime
 usdRate = []
 eurRate = []
 
-users = []
+users = preloadUserSettings(usersList)
 
 setUsdLimitFlag = False
 setEurLimitFlag = False
@@ -183,6 +203,18 @@ def loadUserSettings(id, key, default=0, users = users):
                 return default
     return default
 
+# Создание нового пользователя
+def createNewUser(id, users = users, list = usersList):
+    obj = {}
+    obj['id'] = id
+    obj['usdSub'] = 0
+    obj['eurSub'] = 0
+    obj['usdLimit'] = 0.01
+    obj['eurLimit'] = 0.01
+    obj['chart'] = 0
+    users.append(obj)
+    list.append(id)
+
 # Конвертирование текста в число с плавающей запятой
 def toFloat(str):
     num = str.replace(',', '.')
@@ -205,6 +237,24 @@ def courseToText(course, rawData):
     result = course + ': \n'
     result += 'Продажа: ' + str(sell) + ' ' + rubleSign + '\n'
     result += 'Покупка: ' + str(buy) + ' ' + rubleSign
+    return result
+
+# Проверка нижней границы курса
+def checkLimits(id, rawData):
+    result = {}
+    #
+    usdSub = loadUserSettings(id, 'usdSub', False)
+    eurSub = loadUserSettings(id, 'eurSub', False)
+    if usdSub:
+        sell = rawData['USD'][2]
+        sellLimit = float(loadUserSettings(id, 'usdLimit'))
+        if sell <= sellLimit:
+            result['USD'] = rawData['USD']
+    if eurSub:
+        sell = rawData['EUR'][2]
+        sellLimit = float(loadUserSettings(id, 'eurLimit'))
+        if sell <= sellLimit:
+            result['EUR'] = rawData['EUR']
     return result
 
 # Получение курса валюты
@@ -280,20 +330,19 @@ def getCourse():
             break
 
     result = {usd: usdRate, eur: eurRate}
-    # result = usd + ': \n'
-    # result += 'Продажа: ' + str(usdRate[2]) + ' ' + rubleSign + '\n'
-    # result += 'Покупка: ' + str(usdRate[3]) + ' ' + rubleSign + '\n'
-    # result += '----\n'
-
-    # result += eur + ': \n'
-    # result += 'Продажа: ' + str(eurRate[2]) + ' ' + rubleSign + '\n'
-    # result += 'Покупка: ' + str(eurRate[3]) + ' ' + rubleSign
-
     return result
 
 @bot.message_handler(commands=['start'])
 def get_course(message):
-    bot.send_message(message.chat.id, 'Настройка работы:', reply_markup=menuButtonsSet)
+    id = message.chat.id
+    isKnownId = False
+    for knownId in usersList:
+        if id == knownId:
+            isKnownId = True
+            break
+    if isKnownId == False:
+        createNewUser(id)
+    bot.send_message(id, 'Настройка работы:', reply_markup=menuButtonsSet)
 
 # Обработка входящего сообщения
 @bot.message_handler(content_types=['text'])
@@ -437,7 +486,15 @@ t.start()
 tl = Timeloop()
 @tl.job(interval=timedelta(seconds=300))
 def auto_send_message():
-    getCourse()
+    rawData = getCourse()
+    for user in users:
+        id = user['id']
+        result = checkLimits(id, rawData)
+        if len(result) > 0:
+            for cur in result:
+                response = 'Выгодный курс ' + cur + ':\n'
+                response += 'Продажа: ' + result[cur] + rubleSign
+                bot.send_message(id, response)
 
 tl.start(block=True)
 
@@ -445,4 +502,4 @@ tl.start(block=True)
 bot.stop_polling()
 t.join()
 print('polling end\n')
-saveToConfig()
+saveToConfig(users)
