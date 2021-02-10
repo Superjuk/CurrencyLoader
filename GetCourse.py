@@ -25,10 +25,20 @@ def saveToConfig(users, file = 'settings.conf', config = config):
 
 # Запись в конфиг значения
 def commitToConfig(section, key, value, config = config):
-    config[section][key] = value
+    sect = str(section)
+    try:
+        config[sect][key] = str(value)
+    except KeyError:
+        config.add_section(sect)
+        config[sect][key] = str(value)
 
 # Запись в конфиг структуры пользователей
 def commitUsersToConfig(users, config = config):
+    listStr = ''
+    for id in usersList:
+        listStr += ',' + str(id)
+    if listStr != '':
+        commitToConfig('users', 'list', listStr[1:], config)
     for user in users:
         section = user['id']
         for key in user:
@@ -50,14 +60,15 @@ def preloadUserSettings(usersList):
     users = []
     #
     for user in usersList:
-        obj = {}
-        obj['id'] = user
-        obj['usdSub'] = getFromConfig(user, 'usdSub', 0)
-        obj['eurSub'] = getFromConfig(user, 'eurSub', 0)
-        obj['usdLimit'] = getFromConfig(user, 'usdLimit', 0.01)
-        obj['eurLimit'] = getFromConfig(user, 'eurLimit', 0.01)
-        obj['chart'] = getFromConfig(user, 'chart', 0)
-        users.append(obj)
+        if user.isnumeric():
+            obj = {}
+            obj['id'] = user
+            obj['usdSub'] = getFromConfig(user, 'usdSub', 0)
+            obj['eurSub'] = getFromConfig(user, 'eurSub', 0)
+            obj['usdLimit'] = getFromConfig(user, 'usdLimit', 0.01)
+            obj['eurLimit'] = getFromConfig(user, 'eurLimit', 0.01)
+            obj['chart'] = getFromConfig(user, 'chart', 0)
+            users.append(obj)
     return users
 
 # Чтение конфига
@@ -94,6 +105,8 @@ usdRate = []
 eurRate = []
 
 users = preloadUserSettings(usersList)
+print(usersList)
+print(users)
 
 setUsdLimitFlag = False
 setEurLimitFlag = False
@@ -163,12 +176,12 @@ def saveCourseToCsv(currency, date, data):
     for item in data:
         raw += item + ','
     raw += '\n'
-    
+
     if currency == 'USD':
         csvPath = usdCsvDir + date + '.csv'
     if currency == 'EUR':
         csvPath = eurCsvDir + date + '.csv'
-    
+
     if not os.path.exists(csvPath):
         raw = 'Текущее время,Актуальность,Продажа,Покупка\n' + raw
 
@@ -186,17 +199,17 @@ def convert(raw, course, currencyName):
 # Сохранение настроек пользователя
 def saveUserSettings(id, key, value, users = users):
     for user in users:
-        if user['id'] == id:
-            user[key] = value
+        if user['id'] == str(id):
+            user[key] = str(value)
             print(users)
             return
-    users.append({'id': id, key: value})
+    users.append({'id': str(id), key: value})
     print(users)
 
 # Загрузка настройки пользователя
 def loadUserSettings(id, key, default=0, users = users):
     for user in users:
-        if user['id'] == id:
+        if user['id'] == str(id):
             try:
                 return user[key]
             except KeyError:
@@ -239,22 +252,30 @@ def courseToText(course, rawData):
     result += 'Покупка: ' + str(buy) + ' ' + rubleSign
     return result
 
+# Найти пользователя по id
+def findUserById(id, users):
+    for item in users:
+        if item['id'] == str(id):
+            return item
+
 # Проверка нижней границы курса
 def checkLimits(id, rawData):
     result = {}
     #
     usdSub = loadUserSettings(id, 'usdSub', False)
     eurSub = loadUserSettings(id, 'eurSub', False)
-    if usdSub:
-        sell = rawData['USD'][2]
+    if usdSub == '1' and rawData.get('USD', False) and len(rawData['USD']) == 4:
+        sell = float(rawData['USD'][2])
         sellLimit = float(loadUserSettings(id, 'usdLimit'))
         if sell <= sellLimit:
-            result['USD'] = rawData['USD']
-    if eurSub:
-        sell = rawData['EUR'][2]
+            result['USD'] = str(rawData['USD'][2])
+            findUserById(id, users)['usdLimit'] = str(float(sell - 0.01, '.2f'))
+    if eurSub == '1' and rawData.get('EUR', False) and len(rawData['EUR']) == 4:
+        sell = float(rawData['EUR'][2])
         sellLimit = float(loadUserSettings(id, 'eurLimit'))
         if sell <= sellLimit:
-            result['EUR'] = rawData['EUR']
+            result['EUR'] = str(rawData['EUR'][2])
+            findUserById(str(id), users)['eurLimit'] = str(float(sell - 0.01, '.2f'))
     return result
 
 # Получение курса валюты
@@ -337,7 +358,7 @@ def get_course(message):
     id = message.chat.id
     isKnownId = False
     for knownId in usersList:
-        if id == knownId:
+        if str(id) == knownId:
             isKnownId = True
             break
     if isKnownId == False:
@@ -395,11 +416,13 @@ def callback_worker(call):
         response = 'Подпишитесь хотя бы на одну валюту!'
         buttonsSet = subscribeButtonsSet
         isUsdResponse = False
-        if loadUserSettings(id, 'usdSub'):
+        print(loadUserSettings(id, 'usdSub'))
+        print(loadUserSettings(id, 'eurSub'))
+        if loadUserSettings(id, 'usdSub') == '1':
             response = courseToText('USD', data['USD'])
             isUsdResponse = True
             buttonsSet = getCourseButtonSet
-        if loadUserSettings(id, 'eurSub'):
+        if loadUserSettings(id, 'eurSub') == '1':
             if isUsdResponse:
                 response += '\n\n'
                 response += courseToText('EUR', data['EUR'])
@@ -493,7 +516,7 @@ def auto_send_message():
         if len(result) > 0:
             for cur in result:
                 response = 'Выгодный курс ' + cur + ':\n'
-                response += 'Продажа: ' + result[cur] + rubleSign
+                response += 'Продажа: ' + result[cur] + ' ' + rubleSign
                 bot.send_message(id, response)
 
 tl.start(block=True)
